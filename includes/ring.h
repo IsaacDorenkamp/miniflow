@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <utility>
 #include <vector>
@@ -92,11 +93,16 @@ class ringbuffer {
     size_t m_front;
     size_t m_back;
     std::shared_mutex m_mutex;
+    // used to prevent multiple functions which modify
+    // m_front, m_back, and m_length from running at
+    // the same time
+    std::mutex m_structureMutex;
     std::condition_variable_any m_waiter;
     std::vector<std::condition_variable_any*> m_queueWaiters;
     std::atomic_uint8_t m_waiting;
 
     bool check() {
+        std::lock_guard<std::mutex> guard(m_structureMutex);
         if (m_length > 0) {
             if (m_buffer[m_front].second == m_consumers) {
                 m_front++;
@@ -111,15 +117,18 @@ class ringbuffer {
     }
 public:
     ringbuffer(size_t capacity) : m_buffer(new entry[capacity]), m_capacity(capacity), m_length(0),
-        m_consumers(0), m_front(0), m_back(0), m_mutex(), m_waiter(), m_queueWaiters(), m_waiting(0) {}
+        m_consumers(0), m_front(0), m_back(0), m_mutex(), m_structureMutex(), m_waiter(), m_queueWaiters(), m_waiting(0) {}
 
     void put(const T& element, bool throw_on_fail = false) {
+        std::unique_lock<std::mutex> guard(m_structureMutex);
         std::unique_lock<std::shared_mutex> lk(m_mutex);
         if (m_length == m_capacity) {
             if (throw_on_fail) {
                 throw full();
             } else {
-                m_waiter.wait(lk, [this]() { return m_length < m_capacity; });
+                lk.unlock();
+                m_waiter.wait(guard, [this]() { return m_length < m_capacity; });
+                lk.lock();
             }
         }
         m_buffer[m_back].first = element;
