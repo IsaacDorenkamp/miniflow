@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <condition_variable>
 #include <cstddef>
 #include <memory>
@@ -15,7 +16,7 @@ class full : public std::exception {};
 class empty : public std::exception {};
 class shutdown : public std::exception {};
 
-template <typename T>
+template <typename T> requires std::copy_constructible<T>
 class ringbuffer;
 
 template <typename T>
@@ -30,14 +31,20 @@ class prqueue {
     bool m_touchedBack;
     std::condition_variable_any m_waiter;
 
-    prqueue(ringbuffer<T>* parent) : m_parent(parent), m_touchedBack(false) {
+    prqueue(ringbuffer<T>* parent) : m_parent(parent), m_touchedBack(false), m_waiter() {
         std::unique_lock lk(parent->m_mutex);
         m_pointer = parent->m_front;
         parent->m_consumers++;
         parent->m_queueWaiters.push_back(&m_waiter);
     }
+
+    prqueue(const prqueue<T>& other) = delete;
+    prqueue(prqueue<T>&& other) : m_parent(other.m_parent), m_touchedBack(other.m_touchedBack), m_waiter() {
+        other.m_parent = nullptr;
+    }
 public:
     virtual ~prqueue() {
+        if (!m_parent) return;
         std::unique_lock lk(m_parent->m_mutex);
         m_parent->m_consumers--;
         // NOTE: possible edge case - full ringbuffer, prqueue which has consumed nothing and is destroyed.
@@ -81,7 +88,7 @@ public:
     }
 };
 
-template <typename T>
+template <typename T> requires std::copy_constructible<T>
 class ringbuffer {
     using entry = std::pair<T, std::atomic_uint8_t>;
 
