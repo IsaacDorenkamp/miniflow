@@ -127,3 +127,16 @@ TEST_CASE("prqueue with ephemeral lifetime", "[ring]") {
     int i = q1.get();
     REQUIRE(i == 2);
 }
+
+TEST_CASE("prqueue available() is accurate", "[ring]") {
+    ringbuffer<int>& buffer = setup_buffer();
+    prqueue<int> q1 = buffer.spawnqueue();
+
+    REQUIRE(q1.available() == buffer.capacity());
+    REQUIRE_NOTHROW(q1.get(true));
+    REQUIRE_NOTHROW(q1.get(true));
+    REQUIRE(q1.available() == buffer.capacity() - 2);
+
+    for (int i = 0; i < buffer.capacity() - 2; i++) REQUIRE_NOTHROW(q1.get(true));
+    REQUIRE(q1.available() == 0);
+}

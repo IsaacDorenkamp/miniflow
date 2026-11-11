@@ -1,7 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <concepts>
+#include <concepts> // IWYU pragma: keep
 #include <condition_variable>
 #include <cstddef>
 #include <memory>
@@ -28,7 +28,7 @@ class prqueue {
     // if we hit the back of the queue through calls to get(), we have
     // "touched the back" and cannot get any more until another call
     // to put().
-    bool m_touchedBack;
+    mutable bool m_touchedBack;
     std::condition_variable_any m_waiter;
 
     prqueue(ringbuffer<T>* parent) : m_parent(parent), m_touchedBack(false), m_waiter() {
@@ -85,6 +85,21 @@ public:
 
     inline T get_nowait() {
         return get(true);
+    }
+
+    size_t available() const {
+        std::shared_lock lk(m_parent->m_mutex);
+        if (m_parent->m_length == 0) return 0;
+        if (m_pointer == m_parent->m_front && m_touchedBack) m_touchedBack = false;
+        if (m_pointer == m_parent->m_back) {
+            if (m_touchedBack) return 0;
+            // only other case is if m_front == m_back in which
+            // case we have the entire capacity to go through
+            return m_parent->m_capacity;
+        } else {
+            if (m_parent->m_back > m_pointer) return m_parent->m_back - m_pointer;
+            else return (m_parent->m_back + m_parent->m_capacity) - m_pointer;
+        }
     }
 };
 
