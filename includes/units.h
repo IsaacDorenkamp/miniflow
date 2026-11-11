@@ -29,6 +29,8 @@ public:
     template <typename U, std::enable_if_t<std::is_base_of<Sink<T>, U>::value> = true>
     U& operator>>(U& sink) {
         if (m_flow != sink.m_flow) throw std::runtime_error("Source and Sink must belong to the same Flow.");
+        bool added = m_flow->m_graph.addEdge(m_flowId, sink.m_flowId);
+        if (!added) throw std::runtime_error("Unable to connect Source to Sink. Ensure that the connection would not result in a cycle.");
         return sink;
     }
 

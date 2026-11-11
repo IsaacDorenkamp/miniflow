@@ -24,6 +24,7 @@ set(SOURCES
 )
 
 set(TEST_SOURCES
+    "src/test_dag.cpp"
     "src/test_ring.cpp"
 )
 

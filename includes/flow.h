@@ -2,8 +2,11 @@
 
 #include <any>
 #include <concepts> // IWYU pragma: keep
+#include <cstdint>
 #include <map>
 #include <type_traits>
+
+#include "dag.h"
 
 namespace flow {
 
@@ -16,6 +19,7 @@ class Sink;
 class Flow {
     uint32_t m_idCounter;
     std::map<uint32_t, std::any> m_sourcesAndSinks;
+    dag<uint32_t> m_graph;
 public:
     template <typename T> requires std::copy_constructible<T>
     friend class Source;
@@ -23,9 +27,7 @@ public:
     template <typename T> requires std::copy_constructible<T>
     friend class Sink;
 
-    Flow() : m_idCounter(0), m_sourcesAndSinks() {}
-
-    // TODO: Need some sort of non-generic container to store generic source & sinks??
+    Flow() : m_idCounter(0), m_sourcesAndSinks(), m_graph() {}
 
     template <typename T, typename U, typename... Args, std::enable_if_t<
         std::conjunction<
@@ -39,7 +41,8 @@ public:
         Source<U> src(*this, std::forward(args)...);
         auto result = m_sourcesAndSinks.emplace(std::make_pair(id, src));
         result.first->second.m_flowId = id;
-        return result.first->second;
+        if (result.second) m_graph.addNode(id);
+        return result.second;
     }
 
     template <typename T, typename U, typename... Args, std::enable_if_t<
@@ -54,7 +57,8 @@ public:
         Sink<U> sink(*this, std::forward(args)...);
         auto result = m_sourcesAndSinks.emplace(std::make_pair(id, sink));
         result.first->second.m_flowId = id;
-        return result.first->second;
+        if (result.second) m_graph.addNode(id);
+        return result.second;
     }
 };
 
