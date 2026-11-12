@@ -56,6 +56,8 @@ void Flow::prepare() {
 }
 
 void Flow::execute() {
+    if (!m_prepared) throw std::runtime_error("must call Flow::prepare() before Flow::execute()!");
+
     // NOTE: Initial implementation:
     // Sort nodes by maximum depth, queue from least to greatest depth, execute each until no longer able
     std::map<uint32_t, uint8_t> depths;

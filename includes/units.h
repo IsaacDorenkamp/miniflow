@@ -225,4 +225,23 @@ public:
     }
 };
 
+template <std::copy_constructible In, std::copy_constructible Out>
+class Passthrough : public Transform<In, Out> {
+    std::optional<Out> m_ready;
+public:
+    virtual ~Passthrough() = default;
+
+    virtual Out transform(const In& item) = 0;
+
+    void consume(const In& item) final {
+        m_ready = transform(item);
+    }
+
+    Out produce() final {
+        Out result = *m_ready;
+        m_ready.reset();
+        return result;
+    }
+};
+
 }

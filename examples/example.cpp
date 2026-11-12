@@ -14,15 +14,10 @@ public:
     }
 };
 
-class SimpleTransform : public flow::Transform<int, int> {
-    int m_val;
+class SimpleTransform : public flow::Passthrough<int, int> {
 public:
-    void consume(const int& val) {
-        m_val = val;
-    }
-
-    int produce() {
-        return m_val * 2;
+    virtual int transform(const int& val) {
+        return 2 * val;
     }
 };
 
@@ -39,6 +34,7 @@ int main(void) {
     auto trn = f.transform<SimpleTransform, int, int>();
     auto snk = f.sink<SimpleSink, int>();
     src >> trn >> snk;
+    src >> snk;
     f.prepare();
     f.execute();
     return 0;
