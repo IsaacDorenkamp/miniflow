@@ -6,8 +6,6 @@
 #include <queue>
 #include <typeindex>
 
-#include <iostream>
-
 #include "flow.h"
 #include "interface.h"
 #include "ring.h"
@@ -39,7 +37,9 @@ class SourceInterface : public virtual NodeInterface {
     std::queue<Connector<T>*> m_stuck;
     std::optional<std::exception> m_exc;
 public:
-    SourceInterface(U& source, const std::vector<Connector<T>*>& outgoingConnectors) : m_source(&source), m_sinks(outgoingConnectors), m_stuck(), m_exc() {}
+    SourceInterface(U& source, const std::vector<Connector<T>*>& outgoingConnectors) : m_source(&source), m_sinks(outgoingConnectors), m_stuck(), m_exc() {
+        for (Connector<T>* connector : m_sinks) connector->incsources();
+    }
     Result process() {
         // first, try to resolve any blockages
         size_t nStuck = m_stuck.size();
@@ -70,11 +70,16 @@ public:
             }
             return (failed == 0) ? SUCCESS : SOURCE_BLOCKED;
         } catch (const typename Source<T>::Unavailable& exc) {
+            for (Connector<T>* conn : m_sinks) conn->incdead();
             return SOURCE_UNAVAILABLE;
         } catch (const std::exception& exc) {
             m_exc = exc;
             return SOURCE_EXCEPTION;
         }
+    }
+
+    unsigned int lives() const {
+        return 1;
     }
 
     const std::optional<std::exception>& exception() const {
@@ -85,21 +90,27 @@ public:
 template <std::copy_constructible T, typename U, std::enable_if_t<std::is_base_of<Sink<T>, U>::value, bool> = true>
 class SinkInterface : public virtual NodeInterface {
     U* m_sink;
-    prqueue<T> m_queue;
     std::optional<std::exception> m_exc;
+    prqueue<T> m_queue;
+    const Connector<T>* m_connector;
 public:
-    SinkInterface(U& sink, Connector<T>& connector) : m_sink(&sink), m_queue(connector.observe()) {}
+    SinkInterface(U& sink, Connector<T>& connector) : m_sink(&sink), m_queue(connector.observe()), m_connector(&connector) {}
     Result process() {
         try {
             T element = m_queue.get_nowait();
             m_sink->consume(element);
         } catch (const flow::empty& exc) {
-            return SINK_WAITING;
+            if (m_connector->dead()) return SINK_DEAD;
+            else return SINK_WAITING;
         }catch (const std::exception& exc) {
             m_exc = exc;
             return SINK_EXCEPTION;
         }
         return SUCCESS;
+    }
+
+    unsigned int lives() const {
+        return 1;
     }
 
     const std::optional<std::exception>& exception() const {
@@ -110,13 +121,24 @@ public:
 template <std::copy_constructible In, std::copy_constructible Out, typename U,
          std::enable_if_t<std::is_base_of<Transform<In, Out>, U>::value, bool> = true>
 class TransformInterface : public SourceInterface<Out, Source<Out>>, public SinkInterface<In, Sink<In>> {
+    bool m_noSink;
 public:
     TransformInterface(U& transform, Connector<In>& incomingConnector, const std::vector<Connector<Out>*>& outgoingConnectors)
-        : SourceInterface<Out, Source<Out>>(transform, outgoingConnectors), SinkInterface<In, Sink<In>>(transform, incomingConnector) {}
+        : SourceInterface<Out, Source<Out>>(transform, outgoingConnectors), SinkInterface<In, Sink<In>>(transform, incomingConnector), m_noSink(false) {}
     NodeInterface::Result process() final {
-        NodeInterface::Result result = this->SinkInterface<In, Sink<In>>::process();
+        // TODO: what to do if SOURCE_UNAVAILABLE occurs before SINK_DEAD?
+        NodeInterface::Result result;
+        if (!m_noSink) {
+            result = this->SinkInterface<In, Sink<In>>::process();
+            if (result == NodeInterface::SINK_DEAD) m_noSink = true;
+        }
         if (result != NodeInterface::SUCCESS) return result;
         return this->SourceInterface<Out, Source<Out>>::process();
+    }
+
+    unsigned int lives() const final {
+        // a transform must die twice: once as a source and once as a sink.
+        return 2;
     }
 };
 
@@ -146,9 +168,28 @@ template <std::copy_constructible T>
 class Connector {
     std::optional<T> m_stuck; 
     ringbuffer<T> m_buffer;
+    uint8_t m_deadCounter;
+    uint8_t m_sources;
 public:
-    Connector(size_t capacity) : m_stuck(), m_buffer(capacity) {}
+    friend class NodeInterface;
+    Connector(size_t capacity) : m_stuck(), m_buffer(capacity), m_deadCounter(0), m_sources(0) {}
     virtual ~Connector() = default;
+
+    void incsources() {
+        m_sources++;
+    }
+
+    uint8_t sources() const {
+        return m_sources;
+    }
+
+    void incdead() {
+        m_deadCounter++;
+    }
+
+    bool dead() const {
+        return m_deadCounter == m_sources;
+    }
 
     bool put(const T& value) {
         try {

@@ -10,6 +10,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 
+if (APPLE)
+    # needed for jthread
+    set(CMAKE_CXX_FLAGS "-fexperimental-library")
+endif()
+
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
     add_definitions(-DNDEBUG)
     set(BUILD_TESTS OFF)

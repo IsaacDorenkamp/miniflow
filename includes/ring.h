@@ -11,11 +11,9 @@
 #include <utility>
 #include <vector>
 
-namespace flow {
+#include "exc.h"
 
-class full : public std::exception {};
-class empty : public std::exception {};
-class shutdown : public std::exception {};
+namespace flow {
 
 template <typename T> requires std::copy_constructible<T>
 class ringbuffer;
