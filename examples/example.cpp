@@ -36,5 +36,6 @@ int main(void) {
     auto trn = f.transform<SimpleTransform, int, int>();
     auto snk = f.sink<SimpleSink, int>();
     src >> trn >> snk;
+    f.prepare();
     return 0;
 }

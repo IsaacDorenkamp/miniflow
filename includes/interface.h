@@ -4,6 +4,7 @@ namespace flow {
 
 class NodeInterface {
 public:
+    virtual ~NodeInterface() = default;
     enum Result {
         SUCCESS,
         SOURCE_UNAVAILABLE,
@@ -14,6 +15,11 @@ public:
     };
 
     virtual Result process() = 0;
+};
+
+class AbstractNode {
+public:
+    virtual ~AbstractNode() = default;
 };
 
 }

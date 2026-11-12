@@ -116,14 +116,17 @@ public:
     }
 };
 
-class AbstractSource {
+class AbstractSource : public virtual AbstractNode {
 public:
+    virtual ~AbstractSource() = default;
     virtual std::unique_ptr<NodeInterface> createSourceInterface(const std::vector<std::any*>& outgoingConnectors) = 0;
 };
 
 template <std::copy_constructible T>
 class Source : public AbstractSource {
 public:
+    virtual ~Source() = default;
+
     class Unavailable : public std::exception {};
     virtual T produce() = 0;
 
@@ -141,6 +144,7 @@ class Connector {
     ringbuffer<T> m_buffer;
 public:
     Connector(size_t capacity) : m_stuck(), m_buffer(capacity) {}
+    virtual ~Connector() = default;
 
     bool put(const T& value) {
         try {
@@ -173,17 +177,21 @@ public:
 
 class Wirable {
 public:
+    virtual ~Wirable() = default;
     virtual void wire(const std::set<uint32_t>& predecessors, Flow* flow) = 0;
 };
 
-class AbstractSink : public Wirable {
+class AbstractSink : public Wirable, public virtual AbstractNode {
 public:
+    virtual ~AbstractSink() = default;
     virtual std::unique_ptr<NodeInterface> createSinkInterface(std::any& connector) = 0;
 };
 
 template <std::copy_constructible T>
 class Sink : public AbstractSink {
 public:
+    virtual ~Sink() = default;
+
     virtual void consume(const T& element) = 0;
     void wire(const std::set<uint32_t>& predecessors, Flow* flow) final {
         flow->connectorFor<T>(predecessors);
@@ -193,13 +201,16 @@ public:
     }
 };
 
-class AbstractTransform {
+class AbstractTransform : public virtual AbstractNode {
 public:
+    virtual ~AbstractTransform() = default;
     virtual std::unique_ptr<NodeInterface> createTransformInterface(std::any& incomingConnector, const std::vector<std::any*>& outgoingConnectors) = 0;
 };
 
 template <std::copy_constructible In, std::copy_constructible Out>
 class Transform : public Sink<In>, public Source<Out>, public AbstractTransform {
+public:
+    virtual ~Transform() = default;
     std::unique_ptr<NodeInterface> createTransformInterface(std::any& incomingConnector, const std::vector<std::any*>& outgoingConnectors) final {
         std::vector<Connector<Out>*> connectors;
         for (std::any* connector : outgoingConnectors)

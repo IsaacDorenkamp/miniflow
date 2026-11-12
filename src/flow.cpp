@@ -18,7 +18,7 @@ void Flow::prepare() {
     for (uint32_t node : std::views::keys(m_graph.edgemap())) {
         predecessors = m_graph.predecessors(node);
         if (predecessors.size() > 0) {
-            Wirable* w = std::any_cast<Wirable>(&m_nodes.at(node));
+            Wirable* w = dynamic_cast<Wirable*>(m_nodes.at(node).get());
             w->wire(predecessors, this);
         }
     }
@@ -29,18 +29,18 @@ void Flow::prepare() {
         successors = m_graph.successors(node);
         if (predecessors.size() > 0 && successors.size() == 0) {
             // sink
-            AbstractSink* sink = std::any_cast<AbstractSink>(&m_nodes.at(node));
+            AbstractSink* sink = dynamic_cast<AbstractSink*>(m_nodes.at(node).get());
             interface = sink->createSinkInterface(m_connectors.at(predecessors));
         } else if (predecessors.size() == 0 && successors.size() > 0) {
             // source
-            AbstractSource* source = std::any_cast<AbstractSource>(&m_nodes.at(node));
+            AbstractSource* source = dynamic_cast<AbstractSource*>(m_nodes.at(node).get());
             std::vector<std::any*> connectors;
             for (uint32_t successor : successors)
                 connectors.push_back(&m_connectors.at(m_graph.predecessors(successor)));
             interface = source->createSourceInterface(connectors);
         } else if (predecessors.size() > 0 && successors.size() > 0) {
             // transform
-            AbstractTransform* transform = std::any_cast<AbstractTransform>(&m_nodes.at(node));
+            AbstractTransform* transform = dynamic_cast<AbstractTransform*>(m_nodes.at(node).get());
             std::vector<std::any*> connectors;
             for (uint32_t successor : successors)
                 connectors.push_back(&m_connectors.at(m_graph.predecessors(successor)));

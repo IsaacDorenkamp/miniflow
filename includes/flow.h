@@ -41,7 +41,7 @@ class Flow {
 
     bool m_prepared;
 
-    std::map<uint32_t, std::any> m_nodes;
+    std::map<uint32_t, std::unique_ptr<AbstractNode>> m_nodes;
     std::map<std::set<uint32_t>, std::any> m_connectors;
     std::map<uint32_t, std::unique_ptr<NodeInterface>> m_interfaces;
 
@@ -76,8 +76,8 @@ public:
     >
     SourceConnector<U> source(Args&&... args) {
         uint32_t id = m_idCounter++;
-        T src(std::forward(args)...);
-        auto result = m_nodes.emplace(std::make_pair(id, src));
+        std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
+        auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
         if (result.second) m_graph.addNode(id);
         return SourceConnector<U>(id, this);
     }
@@ -92,24 +92,23 @@ public:
     >
     SinkConnector<U> sink(Args&&... args) {
         uint32_t id = m_idCounter++;
-        T sink(std::forward(args)...);
-        auto result = m_nodes.emplace(std::make_pair(id, sink));
+        std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
+        auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
         if (result.second) m_graph.addNode(id);
         return SinkConnector<U>(id, this);
     }
 
     template<typename T, typename In, typename Out, typename... Args, std::enable_if_t<
         std::conjunction<
-            std::is_base_of<Source<Out>, T>,
-            std::is_base_of<Sink<In>, T>,
+            std::is_base_of<Transform<In, Out>, T>,
             std::is_constructible<T, Args...>,
             std::is_copy_constructible<T>
         >::value, bool> = true
     >
     TransformConnector<In, Out> transform(Args&&... args) {
         uint32_t id = m_idCounter++;
-        T transform(std::forward(args)...);
-        auto result = m_nodes.emplace(std::make_pair(id, transform));
+        std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
+        auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
         if (result.second) m_graph.addNode(id);
         return TransformConnector<In, Out>(id, this);
     }
