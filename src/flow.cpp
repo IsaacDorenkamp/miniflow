@@ -48,7 +48,9 @@ void Flow::prepare() {
         } else {
             // TODO: more sophisticated logging
             std::cerr << "Found disconnected node " << node << " while preparing flow." << std::endl;
+            continue;
         }
+        m_interfaces.emplace(node, std::move(interface));
     }
 
     m_prepared = true;
