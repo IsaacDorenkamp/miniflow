@@ -75,6 +75,7 @@ public:
         >::value, bool> = true
     >
     SourceConnector<U> source(Args&&... args) {
+        if (m_prepared) throw std::runtime_error("Flow already prepared!");
         uint32_t id = m_idCounter++;
         std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
         auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
@@ -91,6 +92,7 @@ public:
         >::value, bool> = true
     >
     SinkConnector<U> sink(Args&&... args) {
+        if (m_prepared) throw std::runtime_error("Flow already prepared!");
         uint32_t id = m_idCounter++;
         std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
         auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
@@ -106,6 +108,7 @@ public:
         >::value, bool> = true
     >
     TransformConnector<In, Out> transform(Args&&... args) {
+        if (m_prepared) throw std::runtime_error("Flow already prepared!");
         uint32_t id = m_idCounter++;
         std::unique_ptr<AbstractNode> node((AbstractNode*)new T(std::forward(args)...));
         auto result = m_nodes.emplace(std::make_pair(id, std::move(node)));
@@ -114,6 +117,7 @@ public:
     }
 
     void prepare();
+    void execute();
 };
 
 template <std::copy_constructible T>

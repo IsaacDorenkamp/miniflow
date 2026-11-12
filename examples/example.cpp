@@ -5,9 +5,12 @@
 using namespace std;
 
 class SimpleSource : public flow::Source<int> {
+    int m_emitted;
 public:
+    SimpleSource() : m_emitted(0) {}
     int produce() {
-        return 1;
+        if (m_emitted == 10) throw Unavailable();
+        return ++m_emitted;
     }
 };
 
@@ -37,5 +40,6 @@ int main(void) {
     auto snk = f.sink<SimpleSink, int>();
     src >> trn >> snk;
     f.prepare();
+    f.execute();
     return 0;
 }

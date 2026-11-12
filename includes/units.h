@@ -6,6 +6,8 @@
 #include <queue>
 #include <typeindex>
 
+#include <iostream>
+
 #include "flow.h"
 #include "interface.h"
 #include "ring.h"
@@ -66,7 +68,7 @@ public:
                     m_stuck.push(connector);
                 }
             }
-            return (failed > 0) ? SUCCESS : SOURCE_BLOCKED;
+            return (failed == 0) ? SUCCESS : SOURCE_BLOCKED;
         } catch (const typename Source<T>::Unavailable& exc) {
             return SOURCE_UNAVAILABLE;
         } catch (const std::exception& exc) {
@@ -88,10 +90,12 @@ class SinkInterface : public virtual NodeInterface {
 public:
     SinkInterface(U& sink, Connector<T>& connector) : m_sink(&sink), m_queue(connector.observe()) {}
     Result process() {
-        T element = m_queue.get();
         try {
+            T element = m_queue.get_nowait();
             m_sink->consume(element);
-        } catch (const std::exception& exc) {
+        } catch (const flow::empty& exc) {
+            return SINK_WAITING;
+        }catch (const std::exception& exc) {
             m_exc = exc;
             return SINK_EXCEPTION;
         }

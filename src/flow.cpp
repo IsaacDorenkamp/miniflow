@@ -8,8 +8,7 @@
 namespace flow {
 
 void Flow::prepare() {
-    if (m_prepared) throw std::runtime_error("flow is already prepared!");
-
+    if (m_prepared) throw std::runtime_error("Flow is already prepared!");
     std::set<uint32_t> predecessors;
     std::set<uint32_t> successors;
     std::unique_ptr<NodeInterface> interface;
@@ -54,6 +53,39 @@ void Flow::prepare() {
     }
 
     m_prepared = true;
+}
+
+void Flow::execute() {
+    // NOTE: Initial implementation:
+    // Sort nodes by maximum depth, queue from least to greatest depth, execute each until no longer able
+    std::map<uint32_t, uint8_t> depths;
+    m_graph.traverse([&depths](const std::vector<uint32_t>& path) {
+        uint8_t depth = 0;
+        for (uint32_t node : path) {
+            if (depth > depths[node]) depths[node] = depth;
+            depth++;
+        }
+    });
+
+    std::queue<uint32_t> nodes;
+
+    // should iterate from lowest to highest depth
+    for (const std::pair<uint32_t, uint8_t>& entry : depths) {
+        std::cout << "queuing node " << entry.first << " (depth " << std::to_string(entry.second) << ")" << std::endl;
+        nodes.push(entry.first);
+    }
+
+    while (nodes.size()) {
+        uint32_t nextNode = nodes.front();
+        nodes.pop();
+
+        std::cout << "running node " << nextNode << std::endl;
+        NodeInterface* interface = m_interfaces.at(nextNode).get();
+        NodeInterface::Result result;
+        do {
+            result = interface->process();
+        } while (result == NodeInterface::SUCCESS);
+    }
 }
 
 }

@@ -11,7 +11,8 @@ public:
         SOURCE_EXCEPTION,
         SOURCE_UNBLOCKED,  // when process() succeeds in resolving a blockage
         SOURCE_BLOCKED, // when the connector becomes blocked
-        SINK_EXCEPTION
+        SINK_EXCEPTION,
+        SINK_WAITING
     };
 
     virtual Result process() = 0;
