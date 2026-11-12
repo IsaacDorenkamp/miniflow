@@ -4,49 +4,80 @@
 #include <concepts> // IWYU pragma: keep
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <type_traits>
 
 #include "dag.h"
-#include "units.h"
+#include "interface.h"
 
 #define DEFAULT_CAPACITY 4096
 
 namespace flow {
 
+template <std::copy_constructible T>
+class Connector;
+
+template <std::copy_constructible T>
+class Source;
+
+template <std::copy_constructible T>
+class Sink;
+
+template <std::copy_constructible In, std::copy_constructible Out>
+class Transform;
+
+template <std::copy_constructible T>
+class SourceConnector;
+
+template <std::copy_constructible T>
+class SinkConnector;
+
+template <std::copy_constructible In, std::copy_constructible Out>
+class TransformConnector;
+
 class Flow {
     uint32_t m_idCounter;
-    std::map<uint32_t, std::any> m_sourcesAndSinks;
     dag<uint32_t> m_graph;
 
-    std::map<std::set<uint32_t>, std::any> m_connectors;
+    bool m_prepared;
 
-    template <typename T>
-    Connector<T>& getOrCreateConnector(const std::set<uint32_t>& sources) {
+    std::map<uint32_t, std::any> m_nodes;
+    std::map<std::set<uint32_t>, std::any> m_connectors;
+    std::map<uint32_t, std::unique_ptr<NodeInterface>> m_interfaces;
+
+    template <std::copy_constructible T>
+    Connector<T>& connectorFor(const std::set<uint32_t>& sources) {
         auto it = m_connectors.find(sources);
-        if (it != m_connectors.end()) return it->second;
-        return (m_connectors[sources] = Connector<T>(DEFAULT_CAPACITY));
+        if (it != m_connectors.end()) return *std::any_cast<Connector<T>>(&it->second);
+        m_connectors.insert({sources, std::any(Connector<T>(DEFAULT_CAPACITY))});
+        return *std::any_cast<Connector<T>>(&m_connectors.at(sources));
     }
 public:
-    template <typename T>
+    template <std::copy_constructible T>
     friend class SourceConnector;
 
-    template <typename T>
+    template <std::copy_constructible In, std::copy_constructible Out>
+    friend class TransformConnector;
+
+    template <std::copy_constructible T>
     friend class SinkConnector;
 
-    Flow() : m_idCounter(0), m_sourcesAndSinks(), m_graph() {}
+    template <std::copy_constructible T>
+    friend class Sink;
+
+    Flow() : m_idCounter(0), m_graph(), m_prepared(false), m_nodes(), m_connectors() {}
 
     template <typename T, typename U, typename... Args, std::enable_if_t<
         std::conjunction<
             std::is_base_of<Source<U>, T>,
-            std::is_constructible<T, Flow&, Args...>,
+            std::is_constructible<T, Args...>,
             std::is_copy_constructible<T>
         >::value, bool> = true
     >
-    T& source(Args&&... args) {
+    SourceConnector<U> source(Args&&... args) {
         uint32_t id = m_idCounter++;
-        T src(*this, std::forward(args)...);
-        auto result = m_sourcesAndSinks.emplace(std::make_pair(id, src));
-        result.first->second.m_flowId = id;
+        T src(std::forward(args)...);
+        auto result = m_nodes.emplace(std::make_pair(id, src));
         if (result.second) m_graph.addNode(id);
         return SourceConnector<U>(id, this);
     }
@@ -54,21 +85,39 @@ public:
     template <typename T, typename U, typename... Args, std::enable_if_t<
         std::conjunction<
             std::is_base_of<Sink<U>, T>,
-            std::is_constructible<T, Flow&, Args...>,
+            std::negation<std::is_base_of<Source<U>, T>>,
+            std::is_constructible<T, Args...>,
             std::is_copy_constructible<T>
         >::value, bool> = true
     >
-    T& sink(Args&&... args) {
+    SinkConnector<U> sink(Args&&... args) {
         uint32_t id = m_idCounter++;
-        T sink(*this, std::forward(args)...);
-        auto result = m_sourcesAndSinks.emplace(std::make_pair(id, sink));
-        result.first->second.m_flowId = id;
+        T sink(std::forward(args)...);
+        auto result = m_nodes.emplace(std::make_pair(id, sink));
         if (result.second) m_graph.addNode(id);
-        return result.second;
+        return SinkConnector<U>(id, this);
     }
+
+    template<typename T, typename In, typename Out, typename... Args, std::enable_if_t<
+        std::conjunction<
+            std::is_base_of<Source<Out>, T>,
+            std::is_base_of<Sink<In>, T>,
+            std::is_constructible<T, Args...>,
+            std::is_copy_constructible<T>
+        >::value, bool> = true
+    >
+    TransformConnector<In, Out> transform(Args&&... args) {
+        uint32_t id = m_idCounter++;
+        T transform(std::forward(args)...);
+        auto result = m_nodes.emplace(std::make_pair(id, transform));
+        if (result.second) m_graph.addNode(id);
+        return TransformConnector<In, Out>(id, this);
+    }
+
+    void prepare();
 };
 
-template <typename T>
+template <std::copy_constructible T>
 class SinkConnector {
     uint32_t m_flowId;
     Flow* m_flow;
@@ -79,7 +128,27 @@ public:
     }
 };
 
-template <typename T>
+template <std::copy_constructible In, std::copy_constructible Out>
+class TransformConnector {
+    uint32_t m_flowId;
+    Flow* m_flow;
+public:
+    TransformConnector(uint32_t flowId, Flow* flow) : m_flowId(flowId), m_flow(flow) {}
+    SinkConnector<Out>& operator>>(SinkConnector<Out>& into) {
+        bool added = m_flow->m_graph.addEdge(flowId(), into.flowId());
+        return into;
+    }
+    template <typename OtherOut>
+    TransformConnector<Out, OtherOut>& operator>>(TransformConnector<Out, OtherOut>& into) {
+        bool added = m_flow->m_graph.addEdge(flowId(), into.flowId());
+        return into;
+    }
+    uint32_t flowId() const noexcept {
+        return m_flowId;
+    }
+};
+
+template <std::copy_constructible T>
 class SourceConnector {
     uint32_t m_flowId;
     Flow* m_flow;
@@ -90,11 +159,14 @@ public:
         // FIXME: (not urgent but important) throw error if added is false
         return into;
     }
+    template <std::copy_constructible OtherOut>
+    TransformConnector<T, OtherOut>& operator>>(TransformConnector<T, OtherOut>& into) {
+        bool added = m_flow->m_graph.addEdge(flowId(), into.flowId());
+        return into;
+    }
     uint32_t flowId() const noexcept {
         return m_flowId;
     }
 };
-
-
 
 }

@@ -29,6 +29,8 @@ set(TEST_SOURCES
 )
 
 add_library(flow ${SOURCES})
+add_executable(example "examples/example.cpp")
+target_link_libraries(example PRIVATE flow)
 
 if (BUILD_TESTS)
     include(FetchContent)

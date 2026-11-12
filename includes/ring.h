@@ -4,6 +4,7 @@
 #include <concepts> // IWYU pragma: keep
 #include <condition_variable>
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -140,6 +141,10 @@ class ringbuffer {
 public:
     ringbuffer(size_t capacity) : m_buffer(new entry[capacity]), m_capacity(capacity), m_length(0),
         m_consumers(0), m_front(0), m_back(0), m_mutex(), m_structureMutex(), m_waiter(), m_queueWaiters(), m_waiting(0) {}
+    ringbuffer(const ringbuffer<T>& other) : m_buffer(new entry[other.m_capacity]), m_capacity(other.m_capacity), m_length(other.m_length),
+        m_consumers(0), m_front(other.m_front), m_back(other.m_back), m_mutex(), m_structureMutex(), m_waiter(), m_queueWaiters(), m_waiting(0) {
+        memcpy(m_buffer.get(), other.m_buffer.get(), sizeof(entry) * m_capacity);
+    }
 
     void put(const T& element, bool throw_on_fail = false) {
         std::unique_lock<std::mutex> guard(m_structureMutex);

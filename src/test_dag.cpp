@@ -63,3 +63,17 @@ TEST_CASE("traverses all paths", "[dag]") {
     REQUIRE(count == 3);
     REQUIRE(paths.empty());
 }
+
+TEST_CASE("correctly tracks predecessors and successors", "[dag]") {
+    dag<int> d;
+    for (int i = 1; i <= 5; i++) d.addNode(i);
+
+    REQUIRE(d.addEdge(1, 2));
+    REQUIRE(d.addEdge(2, 4));
+    REQUIRE(d.addEdge(1, 3));
+    REQUIRE(d.addEdge(3, 4));
+    REQUIRE(d.addEdge(3, 5));
+
+    REQUIRE(d.successors(1) == set<int>{2, 3});
+    REQUIRE(d.predecessors(4) == set<int>{2, 3});
+}

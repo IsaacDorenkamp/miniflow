@@ -6,6 +6,8 @@
 #include <queue>
 #include <typeindex>
 
+#include "flow.h"
+#include "interface.h"
 #include "ring.h"
 
 namespace flow {
@@ -28,12 +30,109 @@ public:
     }
 };
 
-template <typename T>
-class Source {
+template <std::copy_constructible T, typename U, std::enable_if_t<std::is_base_of<Source<T>, U>::value, bool> = true>
+class SourceInterface : public virtual NodeInterface {
+    U* m_source;
+    std::vector<Connector<T>*> m_sinks;
+    std::queue<Connector<T>*> m_stuck;
+    std::optional<std::exception> m_exc;
+public:
+    SourceInterface(U& source, const std::vector<Connector<T>*>& outgoingConnectors) : m_source(&source), m_sinks(outgoingConnectors), m_stuck(), m_exc() {}
+    Result process() {
+        // first, try to resolve any blockages
+        size_t nStuck = m_stuck.size();
+        if (nStuck) {
+            Connector<T>* conn;
+            bool unstuck;
+            // try to unblock each connector, pushing it to the back of the queue again
+            // if it fails
+            for (size_t i = 0; i < nStuck; i++) {
+                conn = m_stuck.front();
+                m_stuck.pop();
+                unstuck = conn->unblock();
+                if (!unstuck) m_stuck.push(conn);
+            }
+            if (m_stuck.size() > 0) return SOURCE_BLOCKED;
+            else return SOURCE_UNBLOCKED;
+        }
+
+        try {
+            T element = m_source->produce();
+            int failed = 0;
+            for (Connector<T>* connector : m_sinks) {
+                bool placed = connector->put(element);
+                if (!placed) {
+                    failed++;
+                    m_stuck.push(connector);
+                }
+            }
+            return (failed > 0) ? SUCCESS : SOURCE_BLOCKED;
+        } catch (const typename Source<T>::Unavailable& exc) {
+            return SOURCE_UNAVAILABLE;
+        } catch (const std::exception& exc) {
+            m_exc = exc;
+            return SOURCE_EXCEPTION;
+        }
+    }
+
+    const std::optional<std::exception>& exception() const {
+        return m_exc;
+    }
+};
+
+template <std::copy_constructible T, typename U, std::enable_if_t<std::is_base_of<Sink<T>, U>::value, bool> = true>
+class SinkInterface : public virtual NodeInterface {
+    U* m_sink;
+    prqueue<T> m_queue;
+    std::optional<std::exception> m_exc;
+public:
+    SinkInterface(U& sink, Connector<T>& connector) : m_sink(&sink), m_queue(connector.observe()) {}
+    Result process() {
+        T element = m_queue.get();
+        try {
+            m_sink->consume(element);
+        } catch (const std::exception& exc) {
+            m_exc = exc;
+            return SINK_EXCEPTION;
+        }
+        return SUCCESS;
+    }
+
+    const std::optional<std::exception>& exception() const {
+        return m_exc;
+    }
+};
+
+template <std::copy_constructible In, std::copy_constructible Out, typename U,
+         std::enable_if_t<std::is_base_of<Transform<In, Out>, U>::value, bool> = true>
+class TransformInterface : public SourceInterface<Out, Source<Out>>, public SinkInterface<In, Sink<In>> {
+public:
+    TransformInterface(U& transform, Connector<In>& incomingConnector, const std::vector<Connector<Out>*>& outgoingConnectors)
+        : SourceInterface<Out, Source<Out>>(transform, outgoingConnectors), SinkInterface<In, Sink<In>>(transform, incomingConnector) {}
+    NodeInterface::Result process() final {
+        NodeInterface::Result result = this->SinkInterface<In, Sink<In>>::process();
+        if (result != NodeInterface::SUCCESS) return result;
+        return this->SourceInterface<Out, Source<Out>>::process();
+    }
+};
+
+class AbstractSource {
+public:
+    virtual std::unique_ptr<NodeInterface> createSourceInterface(const std::vector<std::any*>& outgoingConnectors) = 0;
+};
+
+template <std::copy_constructible T>
+class Source : public AbstractSource {
 public:
     class Unavailable : public std::exception {};
-
     virtual T produce() = 0;
+
+    std::unique_ptr<NodeInterface> createSourceInterface(const std::vector<std::any*>& outgoingConnectors) final {
+        std::vector<Connector<T>*> connectors;
+        for (std::any* item : outgoingConnectors)
+            connectors.push_back(std::any_cast<Connector<T>>(item));
+        return std::unique_ptr<NodeInterface>(new SourceInterface<T, Source<T>>(*this, connectors));
+    }
 };
 
 template <std::copy_constructible T>
@@ -72,131 +171,42 @@ public:
     }
 };
 
-template <typename T>
-class Sink {
+class Wirable {
+public:
+    virtual void wire(const std::set<uint32_t>& predecessors, Flow* flow) = 0;
+};
+
+class AbstractSink : public Wirable {
+public:
+    virtual std::unique_ptr<NodeInterface> createSinkInterface(std::any& connector) = 0;
+};
+
+template <std::copy_constructible T>
+class Sink : public AbstractSink {
 public:
     virtual void consume(const T& element) = 0;
-};
-
-class NodeInterface {
-public:
-    enum Result {
-        SUCCESS,
-        SOURCE_UNAVAILABLE,
-        SOURCE_EXCEPTION,
-        SOURCE_UNBLOCKED,  // when process() succeeds in resolving a blockage
-        SOURCE_BLOCKED, // when the connector becomes blocked
-        SINK_EXCEPTION
-    };
-
-    virtual Result process() = 0;
-};
-
-template <typename T, typename U, std::enable_if_t<std::is_base_of<Source<T>, U>::value, bool> = true>
-class SourceInterface : public NodeInterface {
-    U* m_source;
-    std::vector<Connector<T>*> m_sinks;
-    std::queue<Connector<T>*> m_stuck;
-
-    std::optional<std::exception> m_exc;
-public:
-    SourceInterface(U& source) : m_source(&source), m_sinks(), m_stuck(), m_exc() {}
-    Result process() final {
-        // first, try to resolve any blockages
-        size_t nStuck = m_stuck.size();
-        if (nStuck) {
-            Connector<T>* conn;
-            bool unstuck;
-            // try to unblock each connector, pushing it to the back of the queue again
-            // if it fails
-            for (size_t i = 0; i < nStuck; i++) {
-                conn = m_stuck.front();
-                m_stuck.pop();
-                unstuck = conn->unblock();
-                if (!unstuck) m_stuck.push(conn);
-            }
-            if (m_stuck.size() > 0) return SOURCE_BLOCKED;
-            else return SOURCE_UNBLOCKED;
-        }
-
-        try {
-            T element = m_source->produce();
-            int failed = 0;
-            for (Connector<T>* connector : m_sinks) {
-                bool placed = connector->put(element);
-                if (!placed) {
-                    failed++;
-                    m_stuck.push(connector);
-                }
-            }
-            return (failed > 0) ? SUCCESS : SOURCE_BLOCKED;
-        } catch (const Source<T>::Unavailable&) {
-            return SOURCE_UNAVAILABLE;
-        } catch (const std::exception& exc) {
-            m_exc = exc;
-            return SOURCE_EXCEPTION;
-        }
+    void wire(const std::set<uint32_t>& predecessors, Flow* flow) final {
+        flow->connectorFor<T>(predecessors);
     }
-
-    const std::optional<std::exception>& exception() const {
-        return m_exc;
+    std::unique_ptr<NodeInterface> createSinkInterface(std::any& connector) final {
+        return std::unique_ptr<NodeInterface>(new SinkInterface<T, Sink<T>>(*this, std::any_cast<Connector<T>&>(connector)));
     }
 };
 
-template <std::copy_constructible T, typename U, std::enable_if_t<std::is_base_of<Sink<T>, U>::value, bool> = true>
-class SinkInterface : public NodeInterface {
-    U* m_sink;
-    prqueue<T> m_queue;
-    std::optional<std::exception> m_exc;
+class AbstractTransform {
 public:
-    SinkInterface(U& sink, Connector<T>& connector) : m_sink(&sink), m_queue(connector.observe()) {}
-    Result process() final {
-        T element = m_queue.get();
-        try {
-            m_sink->consume(element);
-        } catch (const std::exception& exc) {
-            m_exc = exc;
-            return SINK_EXCEPTION;
-        }
-    }
-
-    const std::optional<std::exception>& exception() const {
-        return m_exc;
-    }
+    virtual std::unique_ptr<NodeInterface> createTransformInterface(std::any& incomingConnector, const std::vector<std::any*>& outgoingConnectors) = 0;
 };
 
-template <std::copy_constructible In, std::copy_constructible Out, typename U,
-         std::enable_if_t<
-            std::conjunction<
-                std::is_base_of<Sink<In>, U>,
-                std::is_base_of<Source<Out>, U>
-            >::value, bool> = true>
-class SourceSinkInterface : public NodeInterface {
-    U* m_sourceSink;
-    prqueue<In> m_source;
-    Connector<Out>* m_sink;
-    std::optional<std::exception> m_exc;
-public:
-    SourceSinkInterface(U& sourceSink, Connector<In>& from, Connector<Out>& to) : m_sourceSink(&sourceSink), m_source(from.observe()), m_sink(&m_sink), m_exc() {}
-    Result process() final {
-        In element = m_source.get();
-        try {
-            m_sourceSink->consume(element);
-        } catch (const std::exception& exc) {
-            m_exc = exc;
-            return SINK_EXCEPTION;
-        }
-
-        try {
-            Out result = m_sourceSink->produce();
-            bool placed = m_sink->put(result);
-            return placed ? SUCCESS : SOURCE_BLOCKED;
-        } catch (const Source<Out>::Unavailable&) {
-            return SOURCE_UNAVAILABLE;
-        } catch (const std::exception& exc) {
-            m_exc = exc;
-            return SOURCE_EXCEPTION;
-        }
+template <std::copy_constructible In, std::copy_constructible Out>
+class Transform : public Sink<In>, public Source<Out>, public AbstractTransform {
+    std::unique_ptr<NodeInterface> createTransformInterface(std::any& incomingConnector, const std::vector<std::any*>& outgoingConnectors) final {
+        std::vector<Connector<Out>*> connectors;
+        for (std::any* connector : outgoingConnectors)
+            connectors.push_back(std::any_cast<Connector<Out>>(connector));
+        TransformInterface<In, Out, Transform<In, Out>>* interface
+            = new TransformInterface<In, Out, Transform<In, Out>>(*this, *std::any_cast<Connector<In>>(&incomingConnector), connectors);
+        return std::unique_ptr<NodeInterface>((NodeInterface*)interface);
     }
 };
 
