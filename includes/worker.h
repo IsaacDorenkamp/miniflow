@@ -5,6 +5,8 @@
 #include <mutex>
 #include <thread>
 
+#include <iostream>
+
 #include "interface.h"
 #include "queue.h"
 
@@ -38,7 +40,9 @@ public:
             if (!m_interface) {
                 m_waiting = true;
                 waitingLine->put(this);
+                //std::cout << "waiting..." << std::endl;
                 m_waiter.wait(lk, [this](){ return !m_waiting; });
+                //std::cout << "done!" << std::endl;
                 if (!m_interface) break;
             }
 

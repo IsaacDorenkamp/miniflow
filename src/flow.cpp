@@ -61,6 +61,8 @@ void Flow::prepare() {
 }
 
 void Flow::execute() {
+    using std::cout, std::endl;
+
     if (!m_prepared) throw std::runtime_error("must call Flow::prepare() before Flow::execute()!");
 
     std::map<uint32_t, uint8_t> depths;
@@ -97,6 +99,7 @@ void Flow::execute() {
 
     Worker* current;
     uint32_t id;
+    cout << "polling for worker requests" << endl;
     while (lives.size() > 0) {
         current = waitingLine.get();
         if (pending.size() > 0) {
@@ -115,8 +118,10 @@ void Flow::execute() {
             if (requeue) pending.put(current->m_nodeId);
 
             id = pending.get();
+            cout << "assigning " << id << " to " << current << endl;
             current->m_nodeId = id;
             current->m_interface = m_interfaces.at(id).get();
+            current->m_waiting = false;
             current->m_waiter.notify_one();
         }
     }
